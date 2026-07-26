@@ -1,0 +1,67 @@
+name: Patch Kernel Image (OC Frequencies)
+
+on:
+  workflow_dispatch: # Kannst du manuell auf GitHub im Reiter Actions starten
+
+jobs:
+  patch-kernel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Tools & extract-vmlinux laden
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gzip bzip2 lzop xz-utils liblz4-tool zstd python3
+          
+          curl -sSL https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux -o extract-vmlinux
+          chmod +x extract-vmlinux
+
+      - name: Kernel Image entpacken
+        run: |
+          if [ ! -f "Image" ]; then
+            echo "FEHLER: Datei 'Image' im Root-Verzeichnis nicht gefunden!"
+            exit 1
+          fi
+          ./extract-vmlinux Image > vmlinux_uncompressed
+
+      - name: Hex-Patching via Python ausführen
+        run: |
+          python3 -c '
+          with open("vmlinux_uncompressed", "rb") as f:
+              data = bytearray(f.read())
+
+          # 1. Suche nach dem Frequenzwert 1.296.000 kHz (1296000 = 0x0013C680 -> \x80\xC6\x13\x00 in Little Endian)
+          target = b"\x80\xC6\x13\x00"
+          
+          # 2. Ersetze durch 1.512.000 kHz (1512000 = 0x001712A0 -> \xA0\x12\x17\x00)
+          replacement = b"\xA0\x12\x17\x00"
+
+          count = data.count(target)
+          print(f"Gefundene Vorkommen von 1.296 GHz (1296000 kHz): {count}")
+
+          if count > 0:
+              data = data.replace(target, replacement)
+              with open("vmlinux_patched", "wb") as f:
+                  f.write(data)
+              print("Patch erfolgreich angewendet und als vmlinux_patched gespeichert!")
+          else:
+              print("FEHLER: Target Bytes wurden im Kernel nicht gefunden!")
+              exit(1)
+          '
+
+      - name: Gepatchten Kernel wieder neu als Image verpacken
+        run: |
+          echo "Komprimiere vmlinux_patched neu zu Image.patched..."
+          gzip -n -f -9 < vmlinux_patched > Image.patched
+          
+          echo "Fertig! Datei wurde erstellt."
+          ls -lh Image.patched
+
+      - name: Gepatchte Image als Download bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: XU10-Patched-Image
+          path: Image.patched
