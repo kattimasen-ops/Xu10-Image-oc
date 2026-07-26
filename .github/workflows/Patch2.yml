@@ -1,7 +1,7 @@
 name: Patch Kernel Image (OC Frequencies)
 
 on:
-  workflow_dispatch: # Ermöglicht das manuelle Starten über den GitHub Actions Button
+  workflow_dispatch:
 
 jobs:
   patch-kernel:
@@ -11,32 +11,24 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Tools & extract-vmlinux laden
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gzip bzip2 lzop xz-utils liblz4-tool zstd python3
-          
-          curl -sSL https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux -o extract-vmlinux
-          chmod +x extract-vmlinux
-
-      - name: Kernel Image entpacken
+      - name: In-place Hex-Patching der originalen Image
         run: |
           if [ ! -f "Image" ]; then
             echo "FEHLER: Datei 'Image' im Root-Verzeichnis nicht gefunden!"
             exit 1
           fi
-          ./extract-vmlinux Image > vmlinux_uncompressed
 
-      - name: Hex-Patching via Python ausführen
-        run: |
           python3 -c '
-          with open("vmlinux_uncompressed", "rb") as f:
+          with open("Image", "rb") as f:
               data = bytearray(f.read())
 
-          # 1. Suche nach 1.296.000 kHz (1296000 = 0x0013C680 -> \x80\xC6\x13\x00 in Little Endian)
+          orig_size = len(data)
+          print(f"Originale Dateigröße: {orig_size} Bytes")
+
+          # 1. Target: 1.296.000 kHz in Little Endian (\x80\xC6\x13\x00)
           target = b"\x80\xC6\x13\x00"
           
-          # 2. Ersetze durch 1.512.000 kHz (1512000 = 0x001712A0 -> \xA0\x12\x17\x00)
+          # 2. Replacement: 1.512.000 kHz in Little Endian (\xA0\x12\x17\x00)
           replacement = b"\xA0\x12\x17\x00"
 
           count = data.count(target)
@@ -44,19 +36,19 @@ jobs:
 
           if count > 0:
               data = data.replace(target, replacement)
-              with open("vmlinux_patched", "wb") as f:
+              new_size = len(data)
+              
+              if orig_size != new_size:
+                  print("FEHLER: Dateigröße hat sich verändert!")
+                  exit(1)
+
+              with open("Image.patched", "wb") as f:
                   f.write(data)
-              print("Patch erfolgreich angewendet!")
+              print("In-place Patch erfolgreich! Dateigröße exakt identisch.")
           else:
-              print("FEHLER: Target Bytes wurden im Kernel nicht gefunden!")
+              print("FEHLER: Target Bytes wurden in der Image-Datei nicht gefunden!")
               exit(1)
           '
-
-      - name: Gepatchten Kernel neu komprimieren
-        run: |
-          echo "Komprimiere gepatchten Kernel neu..."
-          gzip -n -f -9 < vmlinux_patched > Image.patched
-          ls -lh Image.patched
 
       - name: Gepatchte Image als Download bereitstellen
         uses: actions/upload-artifact@v4
