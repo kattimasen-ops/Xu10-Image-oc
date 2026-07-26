@@ -3,7 +3,7 @@ name: Disassemble Kernel vmlinux
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch: # Ermöglicht das manuelle Starten über den GitHub Actions Button
+  workflow_dispatch:
 
 jobs:
   disassemble:
@@ -20,7 +20,6 @@ jobs:
 
       - name: Prüfen welche Datei existiert
         run: |
-          # Prüft ob vmlinux_uncompressed oder vmlinux_decompressed vorliegt
           if [ -f "vmlinux_uncompressed" ]; then
             echo "KERNEL_FILE=vmlinux_uncompressed" >> $GITHUB_ENV
           elif [ -f "vmlinux_decompressed" ]; then
@@ -32,26 +31,27 @@ jobs:
             exit 1
           fi
 
-      - name: Full Disassembly durchführen
+      - name: Full Disassembly (Raw ARM64 Binary) durchführen
         run: |
-          echo "Disassemble startet für: $KERNEL_FILE..."
+          echo "Disassemble startet für Raw Binary: $KERNEL_FILE..."
           
-          # Disassemble das komplette Binary in Assembler-Code
-          aarch64-linux-gnu-objdump -D "$KERNEL_FILE" > vmlinux.asm
+          # -b binary sagt objdump, dass es ein rohes Binary ohne ELF-Header ist
+          # -m aarch64 erzwingt die ARM 64-Bit Architektur
+          aarch64-linux-gnu-objdump -b binary -m aarch64 -D "$KERNEL_FILE" > vmlinux.asm
           
-          echo "Full Disassembly abgeschlossen! Dateigröße:"
+          echo "Disassembly erfolgreich abgeschlossen! Dateigröße:"
           ls -lh vmlinux.asm
 
-      - name: Nach CPUFreq, Rockchip & Clock-Funktionen filtern
+      - name: Nach Treiber- & Frequenz-Strings (Hex) filtern
         run: |
-          echo "=== Filtere relevante Treiber-Abschnitte ==="
+          echo "=== Erstelle Logdateien mit Text-Strings ==="
           
-          # Suche nach CPUFreq, Rockchip DVFS, Clocks und Thermal im Assembler-Code
-          grep -n -C 20 -i "cpufreq" vmlinux.asm > cpufreq_assembly.txt || true
-          grep -n -C 20 -i "rockchip" vmlinux.asm > rockchip_assembly.txt || true
-          grep -n -C 20 -i "clk_summary" vmlinux.asm > clk_assembly.txt || true
+          # Lesbare Textstrings mit Byte-Positionen extrahieren
+          strings -t x "$KERNEL_FILE" | grep -i "cpufreq" > cpufreq_strings.txt || true
+          strings -t x "$KERNEL_FILE" | grep -i "rockchip" > rockchip_strings.txt || true
+          strings -t x "$KERNEL_FILE" | grep -E "1296000|1368000|1512000" > frequency_strings.txt || true
 
-          echo "Gefilterte Logdateien wurden erstellt!"
+          echo "Text-Analysen wurden erstellt!"
 
       - name: Assembler-Dateien als Artefakte hochladen
         uses: actions/upload-artifact@v4
@@ -59,6 +59,6 @@ jobs:
           name: xu10-kernel-disassembly
           path: |
             vmlinux.asm
-            cpufreq_assembly.txt
-            rockchip_assembly.txt
-            clk_assembly.txt
+            cpufreq_strings.txt
+            rockchip_strings.txt
+            frequency_strings.txt
