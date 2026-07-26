@@ -1,0 +1,64 @@
+name: Disassemble Kernel vmlinux
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Ermöglicht das manuelle Starten über den GitHub Actions Button
+
+jobs:
+  disassemble:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ARM64 Cross-Compiler Toolchain installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Prüfen welche Datei existiert
+        run: |
+          # Prüft ob vmlinux_uncompressed oder vmlinux_decompressed vorliegt
+          if [ -f "vmlinux_uncompressed" ]; then
+            echo "KERNEL_FILE=vmlinux_uncompressed" >> $GITHUB_ENV
+          elif [ -f "vmlinux_decompressed" ]; then
+            echo "KERNEL_FILE=vmlinux_decompressed" >> $GITHUB_ENV
+          elif [ -f "vmlinux" ]; then
+            echo "KERNEL_FILE=vmlinux" >> $GITHUB_ENV
+          else
+            echo "FEHLER: Keine entpackte vmlinux Datei im Repository gefunden!"
+            exit 1
+          fi
+
+      - name: Full Disassembly durchführen
+        run: |
+          echo "Disassemble startet für: $KERNEL_FILE..."
+          
+          # Disassemble das komplette Binary in Assembler-Code
+          aarch64-linux-gnu-objdump -D "$KERNEL_FILE" > vmlinux.asm
+          
+          echo "Full Disassembly abgeschlossen! Dateigröße:"
+          ls -lh vmlinux.asm
+
+      - name: Nach CPUFreq, Rockchip & Clock-Funktionen filtern
+        run: |
+          echo "=== Filtere relevante Treiber-Abschnitte ==="
+          
+          # Suche nach CPUFreq, Rockchip DVFS, Clocks und Thermal im Assembler-Code
+          grep -n -C 20 -i "cpufreq" vmlinux.asm > cpufreq_assembly.txt || true
+          grep -n -C 20 -i "rockchip" vmlinux.asm > rockchip_assembly.txt || true
+          grep -n -C 20 -i "clk_summary" vmlinux.asm > clk_assembly.txt || true
+
+          echo "Gefilterte Logdateien wurden erstellt!"
+
+      - name: Assembler-Dateien als Artefakte hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: xu10-kernel-disassembly
+          path: |
+            vmlinux.asm
+            cpufreq_assembly.txt
+            rockchip_assembly.txt
+            clk_assembly.txt
