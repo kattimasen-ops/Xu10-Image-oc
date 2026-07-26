@@ -1,0 +1,72 @@
+name: Compare Kernels (Image vs Image.oc)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Tools & extract-vmlinux installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bsdmainutils curl gzip bzip2 lzop xz-utils liblz4-tool zstd
+          
+          curl -sSL https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux -o extract-vmlinux
+          chmod +x extract-vmlinux
+
+      - name: Prüfen ob beide Dateien existieren
+        run: |
+          if [ ! -f "Image" ]; then
+            echo "FEHLER: 'Image' (Original) fehlt im Repository!"
+            exit 1
+          fi
+          if [ ! -f "Image.oc" ]; then
+            echo "FEHLER: 'Image.oc' (Modifiziert) fehlt im Repository!"
+            exit 1
+          fi
+          echo "Beide Dateien im Root-Verzeichnis gefunden!"
+
+      - name: Beide Kernel entpacken
+        run: |
+          echo "Entpacke originale Image..."
+          ./extract-vmlinux Image > vmlinux_original
+
+          echo "Entpacke modifizierte Image.oc..."
+          ./extract-vmlinux Image.oc > vmlinux_oc
+
+          echo "Entpacken abgeschlossen!"
+          ls -lh vmlinux_original vmlinux_oc
+
+      - name: Binary Diff (Byte-Vergleich) ausführen
+        run: |
+          echo "=== STARTE BYTE-VERGLEICH ===" > diff_report.txt
+          
+          # cmp -l listet abweichende Bytes auf (Format: Byte-Position, Wert1-Oktal, Wert2-Oktal)
+          # awk wandelt die Werte in lesbares Hexadezimal um
+          cmp -l vmlinux_original vmlinux_oc | awk '{printf "Offset: 0x%X (%d) | Orig: 0x%02X | Mod: 0x%02X\n", $1-1, $1-1, strtonum("0"$2), strtonum("0"$3)}' >> diff_report.txt || true
+
+          echo "Vergleich abgeschlossen! Erste 100 Abweichungen:"
+          head -n 100 diff_report.txt
+
+      - name: Zusammenfassung & Zählung der Abweichungen
+        run: |
+          TOTAL_DIFFS=$(wc -l < diff_report.txt)
+          echo "Gesamtanzahl abweichender Bytes: $((TOTAL_DIFFS - 1))" >> diff_summary.txt
+          
+          echo "=== ZUSAMMENFASSUNG ==="
+          cat diff_summary.txt
+
+      - name: Bericht als Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-diff-report
+          path: |
+            diff_report.txt
+            diff_summary.txt
