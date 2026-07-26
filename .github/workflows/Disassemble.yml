@@ -13,10 +13,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: LLVM & Toolchain installieren
+      - name: LLVM Toolchain installieren
         run: |
           sudo apt-get update
-          sudo apt-get install -y llvm binutils-aarch64-linux-gnu
+          sudo apt-get install -y llvm binutils
 
       - name: Prüfen welche Datei existiert
         run: |
@@ -35,17 +35,17 @@ jobs:
         run: |
           echo "Disassemble startet für Raw Binary mit LLVM: $KERNEL_FILE..."
           
-          # llvm-objdump bricht bei fehlerhaften Byte-Sequenzen in Daten-Sektionen nicht ab
-          llvm-objdump -D -b binary -m aarch64 --disassemble-zeroes "$KERNEL_FILE" > vmlinux.asm
+          # Syntax für LLVM: --mtriple=aarch64 statt -b / -m
+          llvm-objdump --mtriple=aarch64 -D "$KERNEL_FILE" > vmlinux.asm || true
           
-          echo "Disassembly erfolgreich abgeschlossen! Dateigröße:"
+          echo "Disassembly abgeschlossen! Dateigröße:"
           ls -lh vmlinux.asm
 
       - name: Nach Treiber- & Frequenz-Strings (Hex) filtern
         run: |
           echo "=== Erstelle Logdateien mit Text-Strings ==="
           
-          # Lesbare Textstrings mit Byte-Positionen (Offsets) extrahieren
+          # Lesbare Textstrings mit Byte-Positionen (Hex Offsets) extrahieren
           strings -t x "$KERNEL_FILE" | grep -i "cpufreq" > cpufreq_strings.txt || true
           strings -t x "$KERNEL_FILE" | grep -i "rockchip" > rockchip_strings.txt || true
           strings -t x "$KERNEL_FILE" | grep -E "1296000|1368000|1512000" > frequency_strings.txt || true
