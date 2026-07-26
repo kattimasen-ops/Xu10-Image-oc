@@ -13,10 +13,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: ARM64 Cross-Compiler Toolchain installieren
+      - name: LLVM & Toolchain installieren
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          sudo apt-get install -y llvm binutils-aarch64-linux-gnu
 
       - name: Prüfen welche Datei existiert
         run: |
@@ -31,13 +31,12 @@ jobs:
             exit 1
           fi
 
-      - name: Full Disassembly (Raw ARM64 Binary) durchführen
+      - name: Disassembly mit LLVM durchführen
         run: |
-          echo "Disassemble startet für Raw Binary: $KERNEL_FILE..."
+          echo "Disassemble startet für Raw Binary mit LLVM: $KERNEL_FILE..."
           
-          # -b binary sagt objdump, dass es ein rohes Binary ohne ELF-Header ist
-          # -m aarch64 erzwingt die ARM 64-Bit Architektur
-          aarch64-linux-gnu-objdump -b binary -m aarch64 -D "$KERNEL_FILE" > vmlinux.asm
+          # llvm-objdump bricht bei fehlerhaften Byte-Sequenzen in Daten-Sektionen nicht ab
+          llvm-objdump -D -b binary -m aarch64 --disassemble-zeroes "$KERNEL_FILE" > vmlinux.asm
           
           echo "Disassembly erfolgreich abgeschlossen! Dateigröße:"
           ls -lh vmlinux.asm
@@ -46,7 +45,7 @@ jobs:
         run: |
           echo "=== Erstelle Logdateien mit Text-Strings ==="
           
-          # Lesbare Textstrings mit Byte-Positionen extrahieren
+          # Lesbare Textstrings mit Byte-Positionen (Offsets) extrahieren
           strings -t x "$KERNEL_FILE" | grep -i "cpufreq" > cpufreq_strings.txt || true
           strings -t x "$KERNEL_FILE" | grep -i "rockchip" > rockchip_strings.txt || true
           strings -t x "$KERNEL_FILE" | grep -E "1296000|1368000|1512000" > frequency_strings.txt || true
