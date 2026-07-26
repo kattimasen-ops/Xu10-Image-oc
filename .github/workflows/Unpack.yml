@@ -1,0 +1,59 @@
+name: Unpack and Analyze Kernel Image
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Ermöglicht das manuelle Starten über den Button auf GitHub
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Dependencies installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binwalk bzip2 gzip lzop xz-utils liblz4-tool zstd
+
+      - name: extract-vmlinux Skript laden
+        run: |
+          curl -sSL https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux -o extract-vmlinux
+          chmod +x extract-vmlinux
+
+      - name: Kernel Image entpacken
+        run: |
+          if [ ! -f "Image" ]; then
+            echo "FEHLER: Die Datei 'Image' wurde nicht im Root-Verzeichnis gefunden!"
+            exit 1
+          fi
+
+          echo "Starte Dekompression von Image..."
+          ./extract-vmlinux Image > vmlinux_uncompressed
+
+          if [ ! -s "vmlinux_uncompressed" ]; then
+            echo "FEHLER: Dekompression fehlgeschlagen oder Datei ist leer."
+            exit 1
+          fi
+
+          echo "Kernel erfolgreich entpackt!"
+          ls -lh vmlinux_uncompressed
+
+      - name: Nach Frequenzen und Treiber-Strings suchen (Analyse)
+        run: |
+          echo "=== 1. Kernel-Version / Build Info ==="
+          strings vmlinux_uncompressed | grep -i "Linux version" || true
+
+          echo -e "\n=== 2. Suche nach CPUFreq Treibern ==="
+          strings vmlinux_uncompressed | grep -i "cpufreq" | head -n 30 || true
+
+          echo -e "\n=== 3. Suche nach Standard-Frequenzen (in Hz / kHz) ==="
+          strings vmlinux_uncompressed | grep -E "1296000|1368000|1512000" | head -n 30 || true
+
+      - name: Entpackten Kernel als Artefakt bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: xu10-uncompressed-kernel
+          path: vmlinux_uncompressed
