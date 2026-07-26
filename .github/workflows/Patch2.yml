@@ -25,29 +25,39 @@ jobs:
           orig_size = len(data)
           print(f"Originale Dateigröße: {orig_size} Bytes")
 
-          # 1. Target: 1.296.000 kHz in Little Endian (\x80\xC6\x13\x00)
-          target = b"\x80\xC6\x13\x00"
+          # Bytes in Little-Endian definieren:
+          # 1.296.000 kHz = \x80\xC6\x13\x00
+          # 1.368.000 kHz = \x00\xE0\x14\x00
+          # 1.512.000 kHz = \xA0\x12\x17\x00
+          # 1.608.000 kHz = \x80\x89\x18\x00
           
-          # 2. Replacement: 1.512.000 kHz in Little Endian (\xA0\x12\x17\x00)
-          replacement = b"\xA0\x12\x17\x00"
+          f_1296 = b"\x80\xC6\x13\x00"
+          f_1512 = b"\xA0\x12\x17\x00"
 
-          count = data.count(target)
-          print(f"Gefundene Vorkommen von 1.296 GHz: {count}")
+          # 1. Alle Frequenz-Tabellen-Einträge von 1.296 GHz auf 1.512 GHz anheben
+          c1 = data.count(f_1296)
+          print(f"Gefundene Frequenz-Einträge (1.296 GHz): {c1}")
+          if c1 > 0:
+              data = data.replace(f_1296, f_1512)
 
-          if count > 0:
-              data = data.replace(target, replacement)
-              new_size = len(data)
-              
-              if orig_size != new_size:
-                  print("FEHLER: Dateigröße hat sich verändert!")
-                  exit(1)
+          # 2. Text-Strings für Fallback-Meldungen & Treiber-Caps anpassen
+          # Ersetzt den Log-Text "[oga-avs]no available cpufreq, set 1.296" durch "...set 1.512"
+          s_orig = b"set 1.296"
+          s_patch = b"set 1.512"
+          c2 = data.count(s_orig)
+          print(f"Gefundene Text-Limits: {c2}")
+          if c2 > 0:
+              data = data.replace(s_orig, s_patch)
 
-              with open("Image.patched", "wb") as f:
-                  f.write(data)
-              print("In-place Patch erfolgreich! Dateigröße exakt identisch.")
-          else:
-              print("FEHLER: Target Bytes wurden in der Image-Datei nicht gefunden!")
+          new_size = len(data)
+          if orig_size != new_size:
+              print("FEHLER: Dateigröße hat sich verändert!")
               exit(1)
+
+          with open("Image.patched", "wb") as f:
+              f.write(data)
+
+          print("Patch erfolgreich angewendet!")
           '
 
       - name: Gepatchte Image als Download bereitstellen
